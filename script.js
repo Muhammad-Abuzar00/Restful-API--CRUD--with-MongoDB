@@ -5,26 +5,48 @@ document.addEventListener('DOMContentLoaded', () => {
     const addItemBtn = document.querySelector('#addItemBtn');
     const saveItemBtn = document.querySelector('#saveItemBtn');
     const cancelBtn = document.querySelector('#cancelBtn');
+    const modalTitle = document.querySelector('#modalTitle');
+
+    // Form inputs
+    const nameInput = document.querySelector('#name');
+    const descriptionInput = document.querySelector('#description');
+    const quantityInput = document.querySelector('#quantity');
 
     let editMode = false;
     let currentItemId = null;
 
-   
+    // Detailed logging function
+    function debugLog(message, data = null) {
+        console.log(`[DEBUG] ${message}`);
+        if (data) console.log(JSON.stringify(data, null, 2));
+    }
+
+    // Load items from backend
     const loadItems = async () => {
         try {
+            debugLog('Loading items...');
             const response = await fetch(apiUrl);
+            
             if (!response.ok) {
-                throw new Error('Failed to fetch items');
+                debugLog('Failed to fetch items', {
+                    status: response.status,
+                    statusText: response.statusText
+                });
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
+            
             const items = await response.json();
+            debugLog('Items loaded successfully', items);
             renderItems(items);
-        } catch (err) {
-            console.error('Error fetching items:', err);
+        } catch (error) {
+            debugLog('Error loading items', error);
+            alert(`Failed to load items: ${error.message}`);
         }
     };
 
-    
+    // Render items in the table
     const renderItems = (items) => {
+        debugLog('Rendering items', items);
         itemsTableBody.innerHTML = '';
         items.forEach(item => {
             const row = document.createElement('tr');
@@ -33,101 +55,149 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${item.description}</td>
                 <td>${item.quantity}</td>
                 <td>
-                    <button class="editBtn">Edit</button>
-                    <button class="deleteBtn">Delete</button>
+                    <button class="editBtn" data-id="${item._id}">Edit</button>
+                    <button class="deleteBtn" data-id="${item._id}">Delete</button>
                 </td>
             `;
-            const editBtn = row.querySelector('.editBtn');
-            const deleteBtn = row.querySelector('.deleteBtn');
-            editBtn.addEventListener('click', () => editItem(item._id));
-            deleteBtn.addEventListener('click', () => deleteItem(item._id));
+            
+            // Add event listeners to edit and delete buttons
+            row.querySelector('.editBtn').addEventListener('click', () => {
+                debugLog('Edit button clicked', item);
+                openEditModal(item);
+            });
+            row.querySelector('.deleteBtn').addEventListener('click', () => {
+                debugLog('Delete button clicked', item._id);
+                deleteItem(item._id);
+            });
+            
             itemsTableBody.appendChild(row);
         });
     };
 
+    // Open modal for adding or editing an item
+    const openEditModal = (item = null) => {
+        debugLog('Opening edit modal', item);
+        if (item) {
+            // Edit mode
+            editMode = true;
+            currentItemId = item._id;
+            modalTitle.textContent = 'Edit Item';
+            nameInput.value = item.name;
+            descriptionInput.value = item.description;
+            quantityInput.value = item.quantity;
+        } else {
+            // Add mode
+            editMode = false;
+            currentItemId = null;
+            modalTitle.textContent = 'Add New Item';
+            nameInput.value = '';
+            descriptionInput.value = '';
+            quantityInput.value = '';
+        }
+        modal.style.display = 'block';
+    };
 
-    const addOrEditItem = async () => {
-        const name = document.querySelector('#name').value;
-        const description = document.querySelector('#description').value;
-        const quantity = document.querySelector('#quantity').value;
+    // Save item (add or edit)
+    const saveItem = async () => {
+        // Validate inputs
+        if (!nameInput.value.trim()) {
+            alert('Name is required');
+            return;
+        }
 
-        const itemData = { name, description, quantity };
+        const itemData = {
+            name: nameInput.value.trim(),
+            description: descriptionInput.value.trim(),
+            quantity: quantityInput.value.trim()
+        };
+
+        debugLog('Saving item', {
+            editMode,
+            currentItemId,
+            itemData
+        });
 
         try {
             let response;
-            if (editMode) {
+            if (editMode && currentItemId) {
+                // Edit existing item
+                debugLog('Attempting to edit item');
                 response = await fetch(`${apiUrl}/${currentItemId}`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(itemData),
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(itemData)
                 });
             } else {
+                // Add new item
+                debugLog('Attempting to add new item');
                 response = await fetch(apiUrl, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(itemData),
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(itemData)
                 });
             }
 
+            debugLog('Response details', {
+                status: response.status,
+                statusText: response.statusText
+            });
+
             if (!response.ok) {
-                throw new Error('Failed to save item');
+                const errorBody = await response.text();
+                debugLog('Error response body', errorBody);
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorBody}`);
             }
 
-            const data = await response.json();
+            const responseData = await response.json();
+            debugLog('Response data', responseData);
+
+            // Close modal and refresh items
             modal.style.display = 'none';
             loadItems();
-        } catch (err) {
-            console.error('Error adding/editing item:', err);
+        } catch (error) {
+            debugLog('Error saving item', error);
+            alert(`Failed to save item: ${error.message}`);
         }
     };
 
-    
-    addItemBtn.addEventListener('click', () => {
-        editMode = false;
-        modal.style.display = 'block';
-        document.querySelector('#name').value = '';
-        document.querySelector('#description').value = '';
-        document.querySelector('#quantity').value = '';
-    });
+    // Delete item
+    const deleteItem = async (id) => {
+        if (!confirm('Are you sure you want to delete this item?')) return;
 
- 
+        try {
+            const response = await fetch(`${apiUrl}/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            loadItems();
+        } catch (error) {
+            console.error('Error deleting item:', error);
+            alert(`Failed to delete item: ${error.message}`);
+        }
+    };
+
+    // Event Listeners
+    addItemBtn.addEventListener('click', () => {
+        debugLog('Add Item button clicked');
+        openEditModal();
+    });
+    saveItemBtn.addEventListener('click', () => {
+        debugLog('Save Item button clicked');
+        saveItem();
+    });
     cancelBtn.addEventListener('click', () => {
+        debugLog('Cancel button clicked');
         modal.style.display = 'none';
     });
 
-    
-    const deleteItem = async (id) => {
-        try {
-            const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
-            if (!response.ok) {
-                throw new Error('Failed to delete item');
-            }
-            loadItems();
-        } catch (err) {
-            console.error('Error deleting item:', err);
-        }
-    };
-
-    
-    const editItem = (id) => {
-        editMode = true;
-        currentItemId = id;
-        modal.style.display = 'block';
-
-        
-        fetch(`${apiUrl}/${id}`)
-            .then((res) => res.json())
-            .then((item) => {
-                document.querySelector('#name').value = item.name;
-                document.querySelector('#description').value = item.description;
-                document.querySelector('#quantity').value = item.quantity;
-            })
-            .catch((err) => console.error('Error fetching item:', err));
-    };
-
-   
-    saveItemBtn.addEventListener('click', addOrEditItem);
-
-
+    // Initial load of items
     loadItems();
 });
